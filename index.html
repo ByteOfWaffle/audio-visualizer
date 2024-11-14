@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Visualizer</title>
+    <style>
+        /* Reset default styles and set box-sizing */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* Main body styles with gradient background */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 2rem;
+            color: #fff;
+        }
+
+        /* Container for main content */
+        .container {
+            width: 100%;
+            max-width: 800px;
+            text-align: center;
+        }
+
+        /* Title styling */
+        h1 {
+            margin-bottom: 2rem;
+            font-size: 2.5rem;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+
+        /* Glassmorphism container for visualizer */
+        .visualizer-container {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 1.5rem;
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            margin-bottom: 2rem;
+        }
+
+        /* Canvas element styling */
+        #visualizer {
+            width: 100%;
+            height: 300px;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        /* Controls section layout */
+        .controls {
+            margin-top: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        /* Custom file input styling */
+        .file-input-container {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        /* Styled button for file input */
+        .file-input-label {
+            background: #4a90e2;
+            color: white;
+            padding: 0.8rem 2rem;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+            font-weight: 500;
+            display: inline-block;
+        }
+
+        .file-input-label:hover {
+            background: #357abd;
+        }
+
+        /* Audio controls layout */
+        .audio-controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            margin-top: 1rem;
+        }
+
+        /* Button styling */
+        button {
+            background: #4a90e2;
+            color: white;
+            border: none;
+            padding: 0.8rem 2rem;
+            border-radius: 25px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+
+        button:hover {
+            background: #357abd;
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Volume control styling */
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        /* Custom range input styling */
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 2px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 15px;
+            height: 15px;
+            background: #4a90e2;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            background: #357abd;
+        }
+
+        /* File name display styling */
+        .file-name {
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        /* Status message styling */
+        .status {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            color: rgba(255, 255, 255, 0.7);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Audio Visualizer</h1>
+        <div class="visualizer-container">
+            <canvas id="visualizer"></canvas>
+            <div class="controls">
+                <div class="file-input-container">
+                    <label for="audio-file" class="file-input-label">Choose Audio File</label>
+                    <input type="file" id="audio-file" class="file-input" accept="audio/*">
+                </div>
+                <div class="file-name" id="file-name"></div>
+                <div class="audio-controls">
+                    <button id="play-pause" disabled>Play</button>
+                    <div class="volume-control">
+                        <span>Volume</span>
+                        <input type="range" id="volume" min="0" max="1" step="0.1" value="1">
+                    </div>
+                </div>
+                <div class="status" id="status"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables for audio context and processing
+        let audioContext = null;    // Web Audio API context
+        let analyser = null;        // Analyser node for frequency data
+        let gainNode = null;        // Gain node for volume control
+        let source = null;          // Audio source node
+        let audioBuffer = null;     // Decoded audio data
+        let isPlaying = false;      // Playback state
+        let animationId = null;     // Animation frame ID for visualization
+
+        // Get DOM elements
+        const canvas = document.getElementById('visualizer');
+        const ctx = canvas.getContext('2d');
+        const playPauseButton = document.getElementById('play-pause');
+        const fileInput = document.getElementById('audio-file');
+        const volumeControl = document.getElementById('volume');
+        const fileNameDisplay = document.getElementById('file-name');
+        const statusDisplay = document.getElementById('status');
+
+        /**
+         * Sets up the canvas dimensions based on its container size
+         */
+        function setupCanvas() {
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+        }
+
+        /**
+         * Initializes the Web Audio API context and creates necessary nodes
+         */
+        function initAudio() {
+            if (!audioContext) {
+                // Create audio context and nodes
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                analyser = audioContext.createAnalyser();
+                gainNode = audioContext.createGain();
+                
+                // Configure analyser node
+                analyser.fftSize = 256; // Sets the size of the FFT (smaller = fewer but wider bars)
+                analyser.smoothingTimeConstant = 0.8; // Smoothing factor for visualization
+                
+                // Connect audio processing chain
+                gainNode.connect(analyser);
+                analyser.connect(audioContext.destination);
+            }
+        }
+
+        /**
+         * Loads and decodes an audio file
+         * @param {File} file - The audio file to load
+         */
+        async function loadAudioFile(file) {
+            try {
+                statusDisplay.textContent = 'Loading audio file...';
+                // Convert file to array buffer
+                const arrayBuffer = await file.arrayBuffer();
+                // Decode audio data
+                audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                statusDisplay.textContent = 'Audio file loaded successfully';
+                playPauseButton.disabled = false;
+            } catch (error) {
+                console.error('Error loading audio file:', error);
+                statusDisplay.textContent = 'Error loading audio file';
+            }
+        }
+
+        /**
+         * Handles the visualization animation frame
+         * Creates a frequency bar visualization
+         */
+        function startVisualization() {
+            if (!isPlaying) return;
+
+            // Clear previous frame
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Get frequency data
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            analyser.getByteFrequencyData(dataArray);
+
+            // Calculate bar width and spacing
+            const barWidth = (canvas.width / bufferLength) * 2.5;
+            let barHeight;
+            let x = 0;
+
+            // Draw bars for each frequency
+            for (let i = 0; i < bufferLength; i++) {
+                barHeight = (dataArray[i] / 255) * canvas.height;
+
+                // Create gradient for each bar
+                const gradient = ctx.createLinearGradient(0, canvas.height, 0, canvas.height - barHeight);
+                gradient.addColorStop(0, '#4a90e2');
+                gradient.addColorStop(1, '#357abd');
+
+                // Draw bar
+                ctx.fillStyle = gradient;
+                ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+
+                x += barWidth + 1;
+            }
+
+            // Request next animation frame
+            animationId = requestAnimationFrame(startVisualization);
+        }
+
+        /**
+         * Toggles audio playback state
+         */
+        async function togglePlayback() {
+            if (isPlaying) {
+                // Stop playback
+                if (source) {
+                    source.stop();
+                    source.disconnect();
+                }
+                if (animationId) {
+                    cancelAnimationFrame(animationId);
+                }
+                isPlaying = false;
+                playPauseButton.textContent = 'Play';
+            } else {
+                // Start playback
+                source = audioContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(gainNode);
+                source.start(0);
+                isPlaying = true;
+                playPauseButton.textContent = 'Pause';
+                startVisualization();
+            }
+        }
+
+        // Event Listeners
+        
+        // Handle window resize
+        window.addEventListener('resize', setupCanvas);
+        
+        // Handle file selection
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                fileNameDisplay.textContent = file.name;
+                if (isPlaying) {
+                    await togglePlayback();
+                }
+                initAudio();
+                await loadAudioFile(file);
+            }
+        });
+
+        // Handle play/pause button clicks
+        playPauseButton.addEventListener('click', togglePlayback);
+
+        // Handle volume changes
+        volumeControl.addEventListener('input', (e) => {
+            if (gainNode) {
+                gainNode.gain.value = e.target.value;
+            }
+        });
+
+        // Initial canvas setup
+        setupCanvas();
+    </script>
+</body>
+</html>
